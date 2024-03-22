@@ -1,0 +1,5 @@
+config:
+  arb_threshold: 0.5
+  live: False
+  strict_url_availability: False
+  
