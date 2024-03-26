@@ -1,3 +1,5 @@
+# rawrbitrage
+
 This is a simple shell script I use to scan potential arbitrage bets on OddsJam. Personally I like making money; I don't like staring at OddsJam all day. 
 
 The script will scan OddsJam on a configurable interval for potential arbitrage bets that fit the criteria of the configuration. If it finds a match, it will prompt the user to open the sportsbook URLs in their default browser.
@@ -6,7 +8,7 @@ The script will scan OddsJam on a configurable interval for potential arbitrage 
 
 Requires a couple packages if you don't have them already
 - [jq](https://jqlang.github.io/jq/)
-- [https://boxes.thomasjensen.com/](https://boxes.thomasjensen.com/)
+- [boxes](https://boxes.thomasjensen.com/)
 
 ## Running Locally
 
