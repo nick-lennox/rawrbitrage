@@ -22,6 +22,7 @@ print_config() {
 Program Configuration
 
 Arb % Threshold: $config_arb_threshold
+Fetch Interval: ${config_fetch_interval}s
 Live: $config_live
 Strict URL Availability: $config_strict_url_availability
 "
@@ -49,18 +50,24 @@ $away_sportsbook | $away_bet_name | $away_price
 
 eval $(parse_yaml config.yaml)
 print_config 
+
 while true; do
     echo -e "\nFetching up-to-date arb data..."
+
     if [[ "$config_live" == "true" ]]; then
-        source requests/live_arb.sh
+        chmod +x requests/live_curl.sh
+        json_res=$(./requests/live_curl.sh)
+        if [[ "$config_write_response_to_file" == "true" ]]; then
+            echo "$json_res" | jq '.' > live_response.json
+        fi
     else
-        source requests/prematch_arb.sh
+        chmod +x requests/prematch_curl.sh
+        json_res=$(./requests/prematch_curl.sh)
+        if [[ "$config_write_response_to_file" == "true" ]]; then
+            echo "$json_res" | jq '.' > prematch_response.json
+        fi
     fi
-
-    # json_res=$(cat output_live.json)
-
-    # echo "$json_res" > output_live.json
-
+    
     for entry in $(echo "$json_res" | jq -r '.data[] | @base64'); do
         _jq() {
             echo ${entry} | base64 --decode | jq -r ${1}
@@ -71,40 +78,57 @@ while true; do
         if (( $(echo "$percentage > $config_arb_threshold" | bc -l) )); then
             _extract_urls_from_deep_link_map() {
                 local deep_link_map=$1
-                local my_sportsbooks=("FanDuel" "DraftKings" "BetMGM" "TonyBet" "Kutt" "Caesars")
+                local my_sportsbooks=("FanDuel" "DraftKings" "BetMGM" "TonyBet" "Kutt" "Caesars" "ESPN BET")
                 local url
 
-                # Extract and compare keys from deep link map against sportsbooks list
-                for key in $(jq -r 'keys[]' <<< "$deep_link_map"); do
-                    # Ensure available sportsbook is one we have, and ensure there is a desktop URL
-                    if [[ " ${my_sportsbooks[@]} " =~ " $key " ]] && [[ $(jq -r --arg key "$key" '.[$key].desktop // empty' <<< "$deep_link_map") ]]; then
-                        url=$(jq -r --arg key "$key" '.[$key].desktop' <<< "$deep_link_map")
-                        echo "$key|$url"  # Concatenate key and URL with a separator (e.g., pipe)
+                # for key in $(jq -r 'keys[]' <<< "$deep_link_map"); do
+                #     # Check if the key is in the list of sportsbooks and if a desktop URL exists
+                #     if [[ " ${my_sportsbooks[@]} " =~ " $key " ]] && [[ $(jq -r --arg key "$key" '.[$key].desktop // empty' <<< "$deep_link_map") ]]; then
+                #         url=$(jq -r --arg key "$key" '.[$key].desktop' <<< "$deep_link_map")
+                #         echo "$key|$url"
+                #     fi
+                # done
+                jq -r 'keys[]' <<< "$deep_link_map" | while IFS= read -r key; do
+                    # Check if the key is in the list of sportsbooks and if a desktop URL exists
+                    if echo "${my_sportsbooks[@]}" | grep -q -F -w "$key" && jq -e ".\"$key\".desktop" <<< "$deep_link_map" >/dev/null; then
+                        url=$(jq -r ".\"$key\".desktop" <<< "$deep_link_map")
+                        echo "$key|$url"
                     fi
                 done
             }
 
 
+
             home_betting_info=$(_extract_urls_from_deep_link_map "$(_jq '.home_deep_link_map')")
             away_betting_info=$(_extract_urls_from_deep_link_map "$(_jq '.away_deep_link_map')")
+
+            # set IFS to pipe and read in multiple values (sportsbook name & url)
             IFS='|' read -r home_sportsbook home_betting_url <<< "$home_betting_info"
             IFS='|' read -r away_sportsbook away_betting_url <<< "$away_betting_info"
 
-            if [[ -n $home_betting_url && -n $away_betting_url ]]; then
-                market=$(_jq '.market')
-                home_bet_name=$(_jq '.home_bet_name')
-                away_bet_name=$(_jq '.away_bet_name')
-                home_price=$(_jq '.home_price')
-                away_price=$(_jq '.away_price')
+            market=$(_jq '.market')
+            home_bet_name=$(_jq '.home_bet_name')
+            away_bet_name=$(_jq '.away_bet_name')
+            home_price=$(_jq '.home_price')
+            away_price=$(_jq '.away_price')
+
+            # depending on config games should only be shown if there are two associated URLs
+            if [[ "$config_strict_url_availability" == "true" && -n "$home_betting_url" && -n "$away_betting_url" ]]; then
                 display_arb_bet "$market" "$percentage" "$home_bet_name" "$away_bet_name" "$home_price" "$away_price" "$home_sportsbook" "$away_sportsbook"
                 read -p "Open in Browser? (Y/N): " confirm
                 if [[ $confirm == [yY] || $confirm == [yY][eE][sS] ]]; then
                     xdg-open "$home_betting_url" "$away_betting_url" &>/dev/null || open "$home_betting_url" "$away_betting_url" &>/dev/null
                     echo "Opening URLs..."
                 fi
+            else
+                display_arb_bet "$market" "$percentage" "$home_bet_name" "$away_bet_name" "$home_price" "$away_price" "$home_sportsbook" "$away_sportsbook"
+                read -p "Continue? (Y/N): " confirm
+                if [[ $confirm == [nN] ]]; then
+                    exit 1
+                fi
             fi
         fi
     done
     echo "Iterated through all entries. Fetching again in 10s"
-    sleep 10
+    sleep $config_fetch_interval
 done

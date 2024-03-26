@@ -1,5 +1,6 @@
 config:
-  arb_threshold: 0.5
-  live: False
-  strict_url_availability: False
-  
+  arb_threshold: 0.1
+  fetch_interval: 10
+  live: false
+  strict_url_availability: true
+  write_response_to_file: false
